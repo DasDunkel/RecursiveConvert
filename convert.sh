@@ -286,7 +286,7 @@ cecho() {
 	if [ "$1" = "-n" ]; then
 		echo -ne "$(tput sgr0)\r$(tput el)$tstring $2$(tput el)$(tput sgr0)"
 	else
-		echo -e "$(tput sgr0)\r$tstring $1$(tput el)$(tput sgr0)"
+		echo -e "$(tput sgr0)\r$(tput el)$tstring $1$(tput el)$(tput sgr0)"
 	fi
 
 }
