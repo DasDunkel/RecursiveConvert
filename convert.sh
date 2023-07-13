@@ -2,6 +2,7 @@
 # Made with hatred
 #	dunk.dev
 #		:)
+OPTIND=1
 scriptstart="$(($(date +%s%N)/1000000))"
 
 tput clear;
@@ -84,16 +85,16 @@ encode() {
 			return
 		fi
 
-		prompt "A file exists for  $printname... Do you want to replace it?"
+		prompt "A file exists for  $printname... Do you want to replace it?" --default
 		if [ "$response" = "y" ]; then
 			echo -n; # Do nothing
-		elif [ "$response" = "n" ]; then
-			cecho "Skipping existing  $printname..."
-			return
 		elif [ "$response" = "a" ]; then
 			redoall=true
 		elif [ "$response" = "s" ]; then
 			skipall=true
+			cecho "Skipping existing  $printname..."
+			return
+		else
 			cecho "Skipping existing  $printname..."
 			return
 		fi
@@ -115,11 +116,9 @@ encode() {
 			return
 		fi
 
-		prompt "10 bit video file  $printname... Do you want to try using the yuv420p pixel format?\n$(tput setaf 1)This will probably result in a bad looking file.$(tput sgr0)"
+		prompt "10 bit video file  $printname... Do you want to try using the yuv420p pixel format?\n$(tput setaf 1)This will probably result in a bad looking file.$(tput sgr0)" --default
 		if [ "$response" = "y" ]; then
 			pixelformat="yuv420p"
-		elif [ "$response" = "n" ]; then
-			echo -n ""
 		elif [ "$response" = "a" ]; then
 			redo10=true
 		elif [ "$response" = "s" ]; then
@@ -143,16 +142,16 @@ encode() {
 
 		if [ "$redo264" = false ]; then
 
-			prompt "Already h264 file  $printname... Do you want to copy it's frames?"
+			prompt "Already h264 file  $printname... Do you want to copy it's frames?" --default
 			if [ "$response" = "y" ]; then
 				echo -n; # Do nothing
-			elif [ "$response" = "n" ]; then
-				return
 			elif [ "$response" = "a" ]; then
 				redo264=true
 			elif [ "$response" = "s" ]; then
 				skip264=true
 				cecho "Skipping h264      $printname..."
+				return
+			else
 				return
 			fi
 
@@ -235,39 +234,48 @@ progress() {
 
 prompt() {
 
-	if [ "$1" = "-yn" ]; then # Yes/No only prompt
-		
-		# Print option prompt with dim/bold text to indicate default No option
-		cecho -n "$2 ($(tput dim)Yes/$(tput sgr0)$(tput bold)No$(tput sgr0)) "
-		read -n1 response
+	local out="$1"
+	local options=("")
+	shift
 
-		if [[ "$response" =~ ^[Yy]$ ]]; then # Yes
-			response="y"
-		elif [[ "$response" =~ ^[Nn]$ ]]; then # No
-			response="n"
-		else
-			response="n"
-		fi
+	for i in "$@"; do
+		case $i in
+			-o|--option)
+				options+=("$(tput dim)$2$(tput sgr0)")
+				shift # past argument=value
+				shift
+				;;
+			-d|--defval)
+				options+=("$(tput bold)$2$(tput sgr0)")
+				shift # past argument=value
+				shift
+				;;
+			--default)
+				options+=("$(tput dim)Yes$(tput sgr0)")
+				options+=("$(tput bold)No$(tput sgr0)")
+				options+=("$(tput dim)All$(tput sgr0)")
+				options+=("$(tput dim)Skip all$(tput sgr0)")
+				shift
+				;;
+			-*|--*)
+				echo "Unknown option $i"
+				exit 1
+				;;
+			*)
+			;;
+		esac
+	done
 
-	else
+	local joined=$(join_by "/" "${options[@]}" | sed -e 's/^\///' -e 's/\/$//' ) 
 
-		# Print option prompt with dim/bold text to indicate default No option
-		cecho -n "$1 ($(tput dim)Yes/$(tput sgr0)$(tput bold)No$(tput sgr0)$(tput dim)/All/Skip all$(tput sgr0)) "
-		read -n1 response
-
-		if [[ "$response" =~ ^[Yy]$ ]]; then # Yes
-			response="y"
-		elif [[ "$response" =~ ^[Nn]$ ]]; then # No
-			response="n"
-		elif [[ "$response" =~ ^[Aa]$ ]]; then # All
-			response="a"
-		elif [[ "$response" =~ ^[Ss]$ ]]; then # Skip all
-			response="s"
-		else
-			response="n"
-		fi
-
+	cecho -n "$out ($joined) "
+	read -n1 response
+	
+	if [ ${#response} -eq 0 ] || [ -z ${response+x} ]; then
+		response="n"
 	fi
+
+	response=${response,,}
 
 }
 
@@ -292,11 +300,22 @@ cecho() {
 }
 
 esc() {
-
 	# Escape any stupid quotation marks in the input
 	printf "%s\n" "$1" | sed -e "s/'/'\"'\"'/g" -e "1s/^/'/" -e "\$s/\$/'/"
-
 }
+
+join_by() {
+  local d=${1-} f=${2-}
+  if shift 2; then
+    printf %s "$f" "${@/#/$d}"
+  fi
+}
+
+# join_by "," 1 2 3 4 5 6
+
+# # prompt "Some shit here" -y "Yes" -n what -a All -s "Skip all" -c Consolidate
+
+# # exit
 
 # Create working directory
 if [ ! -d "$workdir" ]; then
@@ -314,9 +333,14 @@ for file in $files; do
 done
 IFS=$SAVEIFS
 
-prompt -yn "Do you want to remove all log files?"
+prompt "Do you want to remove all log files, or consolidate them into a single file?" -o "Yes" -d "No" -o "Consolidate"
 if [ "$response" = "y" ]; then
 
+	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec rm {} \;
+
+elif [ "$response" = "c" ]; then
+
+	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec cat {} + >$workdir/error.log
 	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec rm {} \;
 
 fi

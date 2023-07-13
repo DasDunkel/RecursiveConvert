@@ -238,8 +238,9 @@ convert
 If you get errors or warnings from ffmpeg they will be output to the files output path prefixed with `.error` as shown above, files from a previous run will be moved to `.error.old`
 The script offers an automatic cleanup at the end to remove error logs
 
+https://github.com/DasDunkel/RecursiveConvert/assets/47669082/13319148-1aa2-4350-966d-966c5fe144f2
+
 ### Todo
-- Option to consolidate all errors into a single file on cleanup prompt
+~~- Option to consolidate all errors into a single file on cleanup prompt~~
 - Do the funky
 
-https://github.com/DasDunkel/RecursiveConvert/assets/47669082/13319148-1aa2-4350-966d-966c5fe144f2
