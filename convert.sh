@@ -285,6 +285,8 @@ cecho() {
 
 	if [ "$1" = "-n" ]; then
 		echo -ne "$(tput sgr0)\r$(tput el)$tstring $2$(tput el)$(tput sgr0)"
+	elif [ "$1" = "-f" ]; then
+		echo -ne "\n$(tput sgr0)\r$(tput el)$tstring $2$(tput el)$(tput sgr0)"
 	else
 		echo -e "$(tput sgr0)\r$(tput el)$tstring $1$(tput el)$(tput sgr0)"
 	fi
@@ -301,6 +303,14 @@ join_by() {
   if shift 2; then
     printf %s "$f" "${@/#/$d}"
   fi
+}
+
+clean() {
+
+	cecho -f "Cleaning stuff up..."
+
+	IFS=$(echo -e " \t\n")
+
 }
 
 # Create working directory
@@ -324,6 +334,8 @@ if [ "$filecount" -eq "0" ]; then
 	exit
 fi
 
+trap clean EXIT
+
 SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")
 for file in $files; do
@@ -342,7 +354,22 @@ if [ "$response" = "y" ]; then
 
 elif [ "$response" = "c" ]; then
 
-	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec cat {} + >$workdir/error.log
+	if [ -f "$workdir/error.log" ]; then
+
+		prompt "An error log already exists." -o "Delete it" -d "Append to it" -o "Rename it"
+		if [ "$response" = "d" ]; then
+
+			rm "$workdir/error.log"
+
+		elif [ "$response" = "r" ]; then
+
+			mv "$workdir/error.log" "$workdir/error.log.old"
+		
+		fi
+	
+	fi
+
+	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec cat {} + >>$workdir/error.log
 	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec rm {} \;
 
 fi
