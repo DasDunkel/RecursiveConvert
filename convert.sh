@@ -108,7 +108,7 @@ encode() {
 			return
 		fi
 
-		prompt "10 bit video file  $printname... Do you want to try using the yuv420p pixel format?\n$(tput setaf 1)This will probably result in a bad looking file.$(tput sgr0)" --default
+		prompt "10 bit video file  $printname... Do you want to try using the yuv420p pixel format?\n$(tput setaf 1)This will probably result in a bad looking file.$(tput sgr0)" -o "Yes" -d "No, try existing" -o "All" -o "Skip all"
 		if [ "$response" = "y" ]; then
 			pixelformat="yuv420p"
 		elif [ "$response" = "a" ]; then
@@ -233,20 +233,20 @@ prompt() {
 	for i in "$@"; do
 		case $i in
 			-o|--option)
-				options+=("$(tput dim)$2$(tput sgr0)")
+				options+=("$(tput dim)$(tput smul)${2:0:1}$(tput rmul)${2:1}$(tput sgr0)")
 				shift # past argument=value
 				shift
 				;;
 			-d|--defval)
-				options+=("$(tput bold)$2$(tput sgr0)")
+				options+=("$(tput bold)$(tput smul)${2:0:1}$(tput rmul)${2:1}$(tput sgr0)")
 				shift # past argument=value
 				shift
 				;;
 			--default)
-				options+=("$(tput dim)Yes$(tput sgr0)")
-				options+=("$(tput bold)No$(tput sgr0)")
-				options+=("$(tput dim)All$(tput sgr0)")
-				options+=("$(tput dim)Skip all$(tput sgr0)")
+				options+=("$(tput dim)$(tput smul)Y$(tput rmul)es$(tput sgr0)")
+				options+=("$(tput bold)$(tput smul)N$(tput rmul)o$(tput sgr0)")
+				options+=("$(tput dim)$(tput smul)A$(tput rmul)ll$(tput sgr0)")
+				options+=("$(tput dim)$(tput smul)S$(tput rmul)kip all$(tput sgr0)")
 				shift
 				;;
 			-*|--*)
@@ -281,7 +281,7 @@ cecho() {
 	fi
 	elength=$(echo -n "$elapsed" | wc -m)
 	elapsed=$(printf "%1.2f" $elapsed)
-	tstring="$(tput setaf 5)$(date '+%H:%M:%S.%3N')$(tput sgr0)$(tput setaf 6) $(printf "%0${countlength}d" $current)/$filecount$(tput sgr0)$(tput setaf 4) ${elapsed}s\t$(tput sgr0)"
+	tstring="$(tput setaf 5)$(date '+%H:%M:%S.%3N')$(tput sgr0)$(tput setaf 6) $(printf "%0${countlength}d" $current)/$((filecount+1))$(tput sgr0)$(tput setaf 4) ${elapsed}s\t$(tput sgr0)"
 
 	if [ "$1" = "-n" ]; then
 		echo -ne "$(tput sgr0)\r$(tput el)$tstring $2$(tput el)$(tput sgr0)"
@@ -303,12 +303,6 @@ join_by() {
   fi
 }
 
-# join_by "," 1 2 3 4 5 6
-
-# # prompt "Some shit here" -y "Yes" -n what -a All -s "Skip all" -c Consolidate
-
-# # exit
-
 # Create working directory
 if [ ! -d "$workdir" ]; then
 	mkdir "$workdir"
@@ -319,11 +313,16 @@ extensions=$(join_by "\\|" "${extensions[@]}")
 # List of all files found
 files=$(find "$1" -type f -regextype sed -regex ".*\.\($(join_by "\\|" "$extensions")\)")
 # Total count of files
-filecount=$(echo -e "$files" | wc -l)
+filecount=$(echo -en "$files" | wc -l)
 # Length of file count (312 = 3 | 2172 = 4)
 countlength=$(echo -n "$filecount" | wc -m)
 # Current file count
 current=0
+
+if [ "$filecount" -eq "0" ]; then
+	cecho "No files found in $1"
+	exit
+fi
 
 SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")
@@ -336,7 +335,7 @@ for file in $files; do
 done
 IFS=$SAVEIFS
 
-prompt "Do you want to remove all log files, or consolidate them into a single file?" -o "Yes" -d "No" -o "Consolidate"
+prompt "Do you want to remove all log files?" -o "Yes" -d "No" -o "Consolidate into error.log"
 if [ "$response" = "y" ]; then
 
 	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec rm {} \;
