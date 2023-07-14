@@ -13,8 +13,8 @@ shopt -s globstar
 # Important user configuration  #
 # # # # # # # # # # # # # # # # #
 
-# All file types to process, add/remove as needed
-files=$(find "$1" -type f -name "*.mkv" -or -name "*.mp4" -or -name "*.mov" -or -name "*.webm" -or -name "*.wmv" -or -name "*.avi")
+# All file extensions to process, add/remove as needed
+extensions=("mkv" "mp4" "mov" "webm" "wmv" "avi")
 
 # Output path
 workdir="$PWD/convert"
@@ -44,14 +44,6 @@ skip10=false
 # Don't change anything below here  #
 #  I ain't gonna help you fix it    #
 # # # # # # # # # # # # # # # # # # #
-
-# Total count of files
-filecount=$(echo -e "$files" | wc -l)
-# Length of file count (312 = 3 | 2172 = 4)
-countlength=$(echo -n "$filecount" | wc -m)
-# Current file count
-current=0
-
 
 encode() {
 
@@ -321,6 +313,17 @@ join_by() {
 if [ ! -d "$workdir" ]; then
 	mkdir "$workdir"
 fi
+
+# Extensions parsed for regex
+extensions=$(join_by "\\|" "${extensions[@]}")
+# List of all files found
+files=$(find "$1" -type f -regextype sed -regex ".*\.\($(join_by "\\|" "$extensions")\)")
+# Total count of files
+filecount=$(echo -e "$files" | wc -l)
+# Length of file count (312 = 3 | 2172 = 4)
+countlength=$(echo -n "$filecount" | wc -m)
+# Current file count
+current=0
 
 SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")
