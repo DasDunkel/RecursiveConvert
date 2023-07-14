@@ -45,6 +45,159 @@ skip10=false
 #  I ain't gonna help you fix it    #
 # # # # # # # # # # # # # # # # # # #
 
+# Escape any stupid quotation marks in the input
+esc() {
+	printf "%s\n" "$1" | sed -e "s/'/'\"'\"'/g" -e "1s/^/'/" -e "\$s/\$/'/"
+}
+
+# Join characters together; join_by "," 1 2 3 4  ;;  1,2,3,4
+join_by() {
+  local d=${1-} f=${2-}
+  if shift 2; then
+    printf %s "$f" "${@/#/$d}"
+  fi
+}
+
+# Clean echo - Adds information to left side and terminates formatting
+cecho() {
+
+	now=$(($(date +%s%N)/1000000))
+	# Show encode time, else show total script time
+	if [ "$1" = "-e" ]; then
+		shift
+		elapsed=$(echo "scale=2; ($now - $encodestart) / 1000" | bc -l )
+	else
+		elapsed=$(echo "scale=2; ($now - $scriptstart) / 1000" | bc -l )
+	fi
+
+	# if ( [ -z ${encodestart+x} ] || [ "$current" = "$filecount" ] ) && [ ! -f "/tmp/encode.stats" ]; then
+	# else
+	# 	elapsed=$(echo "scale=2; ($now - $encodestart) / 1000" | bc -l )
+	# fi
+	elength=$(echo -n "$elapsed" | wc -m)
+	elapsed=$(printf "%1.2f" $elapsed)
+	tstring="$(tput setaf 5)$(date '+%H:%M:%S.%3N')$(tput sgr0)$(tput setaf 6) $(printf "%0${countlength}d" $current)/$((filecount+1))$(tput sgr0)$(tput setaf 4) ${elapsed}s\t$(tput sgr0)"
+
+	if [ "$1" = "-n" ]; then
+		echo -ne "$(tput sgr0)\r$(tput el)$tstring $2$(tput el)$(tput sgr0)"
+	else
+		echo -e "$(tput sgr0)\r$(tput el)$tstring $1$(tput el)$(tput sgr0)"
+	fi
+
+}
+
+# Prompt user for input
+prompt() {
+
+	#local out="$1"
+	local options=("")
+
+	for i in "$@"; do
+		case $i in
+			-o|--option)
+				options+=("$(tput dim)$(tput smul)${2:0:1}$(tput rmul)${2:1}$(tput sgr0)")
+				shift
+				shift
+				;;
+			-d|--defval)
+				options+=("$(tput bold)$(tput smul)${2:0:1}$(tput rmul)${2:1}$(tput sgr0)")
+				shift
+				shift
+				;;
+			--default)
+				options+=("$(tput dim)$(tput smul)Y$(tput rmul)es$(tput sgr0)")
+				options+=("$(tput bold)$(tput smul)N$(tput rmul)o$(tput sgr0)")
+				options+=("$(tput dim)$(tput smul)A$(tput rmul)ll$(tput sgr0)")
+				options+=("$(tput dim)$(tput smul)S$(tput rmul)kip all$(tput sgr0)")
+				shift
+				;;
+			-*|--*)
+				echo "Unknown option $i"
+				exit 1
+				;;
+			*)
+			;;
+		esac
+	done
+
+	local joined=$(join_by "/" "${options[@]}" | sed -e 's/^\///' -e 's/\/$//' ) 
+
+	# Discard any existing input
+	read -t 0.1 -n 10000 discard
+	cecho -n "$1 ($joined) "
+	read -n1 response
+	
+	if [ ${#response} -eq 0 ] || [ -z ${response+x} ]; then
+		response="n"
+	fi
+
+	response=${response,,}
+
+}
+
+# Print progress of encode and success/fail status
+progress() {
+
+	# While ffmpeg process running
+    while kill -0 "$PID" >/dev/null 2>&1
+	do
+
+        stats=$(grep -soP 'frame= {1,}?\K[^ ]+' /tmp/encode.stats | tail -1)
+		stats=$((stats+0))
+
+		# If total frames and current frame is a number display percentage, else do not show percentage
+		if [[ "$frames" =~ ^[0-9]+$ ]] && [[ "$stats" =~ ^[0-9]+$ ]] && [ "$frames" -gt 1 ]; then
+
+			# Avoid percentage going over 100
+			if [ "$stats" -gt "$frames" ]; then
+   				if [ "$stats" -gt 99 ]; then
+       				stats=$((stats+1))
+   				fi
+   				frames=$stats
+	    	fi
+
+			# Calculate and display progress
+			percent=$(echo "scale=2; (100 * $stats) / $frames" | bc -l)%
+
+			cecho -e -n "Doing the funky on $printname... $percent"
+
+		else
+
+			cecho -e -n "Doing the funky on $printname..."
+
+		fi
+
+		sleep 0.1
+
+	done
+
+	# Get exit code of FFmpeg process and check if it was an error or not
+	wait $PID
+	if [ "$?" -ne 0 ]; then
+
+		errors=$((errors+1))
+
+		cecho -e "$(tput setaf 1)Funk has failed on$(tput sgr0) $printname... $(tput setaf 1)❌"
+		tail -n +2 "$errorfile" | head -n -1
+
+		# Remove failed output
+		(rm "$outfile" &> /dev/null &)
+
+	else
+
+		cecho -e "Funk has succeeded $printname... 100%"
+
+	fi
+
+	if [ -f /tmp/encode.stats ]; then
+
+		rm "/tmp/encode.stats"
+
+	fi
+
+}
+
+# Encode input file
 encode() {
 
 	# All the paths that might get used for something
@@ -77,7 +230,7 @@ encode() {
 			return
 		fi
 
-		prompt "A file exists for  $printname... Do you want to replace it?" --default
+		prompt --default "A file exists for  $printname... Do you want to replace it?"
 		if [ "$response" = "y" ]; then
 			echo -n; # Do nothing
 		elif [ "$response" = "a" ]; then
@@ -108,7 +261,7 @@ encode() {
 			return
 		fi
 
-		prompt "10 bit video file  $printname... Do you want to try using the yuv420p pixel format?\n$(tput setaf 1)This will probably result in a bad looking file.$(tput sgr0)" -o "Yes" -d "No, try existing" -o "All" -o "Skip all"
+		prompt -o "Yes" -d "No, try existing" -o "All" -o "Skip all" "10 bit video file  $printname... Do you want to try using the yuv420p pixel format?\n$(tput setaf 1)This will probably result in a bad looking file.$(tput sgr0)"
 		if [ "$response" = "y" ]; then
 			pixelformat="yuv420p"
 		elif [ "$response" = "a" ]; then
@@ -134,7 +287,7 @@ encode() {
 
 		if [ "$redo264" = false ]; then
 
-			prompt "Already h264 file  $printname... Do you want to copy it's frames?" --default
+			prompt --default "Already h264 file  $printname... Do you want to copy it's frames?"
 			if [ "$response" = "y" ]; then
 				echo -n; # Do nothing
 			elif [ "$response" = "a" ]; then
@@ -169,146 +322,6 @@ encode() {
 
 }
 
-progress() {
-
-	# While ffmpeg process running
-    while kill -0 "$PID" >/dev/null 2>&1
-	do
-
-        stats=$(grep -soP 'frame= {1,}?\K[^ ]+' /tmp/encode.stats | tail -1)
-		stats=$((stats+0))
-
-		# If total frames and current frame is a number display percentage, else do not show percentage
-		if [[ "$frames" =~ ^[0-9]+$ ]] && [[ "$stats" =~ ^[0-9]+$ ]] && [ "$frames" -gt 1 ]; then
-
-			# Avoid percentage going over 100
-			if [ "$stats" -gt "$frames" ]; then
-   				if [ "$stats" -gt 99 ]; then
-       				stats=$((stats+1))
-   				fi
-   				frames=$stats
-	    	fi
-
-			# Calculate and display progress
-			percent=$(echo "scale=2; (100 * $stats) / $frames" | bc -l)%
-
-			cecho -n "Doing the funky on $printname... $percent"
-
-		else
-
-			cecho -n "Doing the funky on $printname..."
-
-		fi
-
-		sleep 0.1
-
-	done
-
-	# Get exit code of FFmpeg process and check if it was an error or not
-	wait $PID
-	if [ "$?" -ne 0 ]; then
-
-		errors=$((errors+1))
-
-		cecho "$(tput setaf 1)Funk has failed on$(tput sgr0) $printname... $(tput setaf 1)❌"
-		tail -n +2 "$errorfile" | head -n -1
-
-		# Remove failed output
-		(rm "$outfile" &> /dev/null &)
-
-	else
-
-		cecho "Funk has succeeded $printname... 100%"
-
-	fi
-
-	(rm /tmp/encode.stats &> /dev/null &)
-
-}
-
-prompt() {
-
-	local out="$1"
-	local options=("")
-	shift
-
-	for i in "$@"; do
-		case $i in
-			-o|--option)
-				options+=("$(tput dim)$(tput smul)${2:0:1}$(tput rmul)${2:1}$(tput sgr0)")
-				shift # past argument=value
-				shift
-				;;
-			-d|--defval)
-				options+=("$(tput bold)$(tput smul)${2:0:1}$(tput rmul)${2:1}$(tput sgr0)")
-				shift # past argument=value
-				shift
-				;;
-			--default)
-				options+=("$(tput dim)$(tput smul)Y$(tput rmul)es$(tput sgr0)")
-				options+=("$(tput bold)$(tput smul)N$(tput rmul)o$(tput sgr0)")
-				options+=("$(tput dim)$(tput smul)A$(tput rmul)ll$(tput sgr0)")
-				options+=("$(tput dim)$(tput smul)S$(tput rmul)kip all$(tput sgr0)")
-				shift
-				;;
-			-*|--*)
-				echo "Unknown option $i"
-				exit 1
-				;;
-			*)
-			;;
-		esac
-	done
-
-	local joined=$(join_by "/" "${options[@]}" | sed -e 's/^\///' -e 's/\/$//' ) 
-
-	# Discard any existing input
-	read -t 0.1 -n 10000 discard
-	cecho -n "$out ($joined) "
-	read -n1 response
-	
-	if [ ${#response} -eq 0 ] || [ -z ${response+x} ]; then
-		response="n"
-	fi
-
-	response=${response,,}
-
-}
-
-cecho() {
-
-	now=$(($(date +%s%N)/1000000))
-	if [ -z ${encodestart+x} ] || [ "$current" = "$filecount" ]; then
-		elapsed=$(echo "scale=2; ($now - $scriptstart) / 1000" | bc -l )
-	else
-		elapsed=$(echo "scale=2; ($now - $encodestart) / 1000" | bc -l )
-	fi
-	elength=$(echo -n "$elapsed" | wc -m)
-	elapsed=$(printf "%1.2f" $elapsed)
-	tstring="$(tput setaf 5)$(date '+%H:%M:%S.%3N')$(tput sgr0)$(tput setaf 6) $(printf "%0${countlength}d" $current)/$((filecount+1))$(tput sgr0)$(tput setaf 4) ${elapsed}s\t$(tput sgr0)"
-
-	if [ "$1" = "-n" ]; then
-		echo -ne "$(tput sgr0)\r$(tput el)$tstring $2$(tput el)$(tput sgr0)"
-	elif [ "$1" = "-f" ]; then
-		echo -ne "\n$(tput sgr0)\r$(tput el)$tstring $2$(tput el)$(tput sgr0)"
-	else
-		echo -e "$(tput sgr0)\r$(tput el)$tstring $1$(tput el)$(tput sgr0)"
-	fi
-
-}
-
-esc() {
-	# Escape any stupid quotation marks in the input
-	printf "%s\n" "$1" | sed -e "s/'/'\"'\"'/g" -e "1s/^/'/" -e "\$s/\$/'/"
-}
-
-join_by() {
-  local d=${1-} f=${2-}
-  if shift 2; then
-    printf %s "$f" "${@/#/$d}"
-  fi
-}
-
 clean() {
 
 	trap exit SIGINT
@@ -317,7 +330,7 @@ clean() {
 
 	IFS=$(echo -e " \t\n")
 
-	prompt "Do you want to remove all log files?" -o "Yes" -d "No" -o "Consolidate into error.log"
+	prompt -o "Yes" -d "No" -o "Consolidate into error.log" "Do you want to remove all log files?"
 	if [ "$response" = "y" ]; then
 
 		find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec rm {} \;
@@ -326,12 +339,14 @@ clean() {
 
 		if [ -f "$workdir/error.log" ]; then
 
-			prompt "An error log already exists." -o "Delete it" -d "Append to it" -o "Rename it"
+			prompt -o "Delete it" -d "Append to it" -o "Rename it" "An error log already exists."
 			if [ "$response" = "d" ]; then
 
 				rm "$workdir/error.log"
 
 			elif [ "$response" = "r" ]; then
+
+				cecho "Renamed to error.log.old"
 
 				mv "$workdir/error.log" "$workdir/error.log.old"
 		
@@ -347,6 +362,8 @@ clean() {
 	exit
 
 }
+
+trap clean SIGINT err
 
 # Create working directory
 if [ ! -d "$workdir" ]; then
@@ -370,23 +387,21 @@ if [ "$filecount" -eq "0" ]; then
 	exit
 fi
 
-trap clean EXIT
-
 SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")
 for file in $files; do
 
 	current=$((current+1))
 
-#	echo "$current - $file"
-
 	encode "$(realpath ${file})"
 
 done
 IFS=$SAVEIFS
 
-if [ "$errors" -gt 0 ]; then
+if [ "$errors" -gt "0" ]; then
 	cecho "The ritual has ended! There were $errors errors."
 else
 	cecho "The ritual has ended! I think it was successful."
 fi
+
+clean
