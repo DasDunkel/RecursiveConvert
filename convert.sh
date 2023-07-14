@@ -208,6 +208,8 @@ progress() {
 	wait $PID
 	if [ "$?" -ne 0 ]; then
 
+		errors=$((errors+1))
+
 		cecho "$(tput setaf 1)Funk has failed on$(tput sgr0) $printname... $(tput setaf 1)❌"
 		tail -n +2 "$errorfile" | head -n -1
 
@@ -260,6 +262,8 @@ prompt() {
 
 	local joined=$(join_by "/" "${options[@]}" | sed -e 's/^\///' -e 's/\/$//' ) 
 
+	# Discard any existing input
+	read -t 0.1 -n 10000 discard
 	cecho -n "$out ($joined) "
 	read -n1 response
 	
@@ -307,9 +311,40 @@ join_by() {
 
 clean() {
 
-	cecho -f "Cleaning stuff up..."
+	trap exit SIGINT
+
+	cecho "Cleaning stuff up..."
 
 	IFS=$(echo -e " \t\n")
+
+	prompt "Do you want to remove all log files?" -o "Yes" -d "No" -o "Consolidate into error.log"
+	if [ "$response" = "y" ]; then
+
+		find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec rm {} \;
+
+	elif [ "$response" = "c" ]; then
+
+		if [ -f "$workdir/error.log" ]; then
+
+			prompt "An error log already exists." -o "Delete it" -d "Append to it" -o "Rename it"
+			if [ "$response" = "d" ]; then
+
+				rm "$workdir/error.log"
+
+			elif [ "$response" = "r" ]; then
+
+				mv "$workdir/error.log" "$workdir/error.log.old"
+		
+			fi
+	
+		fi
+
+		find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec cat {} + >>$workdir/error.log
+		find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec rm {} \;
+
+	fi
+
+	exit
 
 }
 
@@ -328,6 +363,7 @@ filecount=$(echo -en "$files" | wc -l)
 countlength=$(echo -n "$filecount" | wc -m)
 # Current file count
 current=0
+errors=0
 
 if [ "$filecount" -eq "0" ]; then
 	cecho "No files found in $1"
@@ -342,36 +378,15 @@ for file in $files; do
 
 	current=$((current+1))
 
+#	echo "$current - $file"
+
 	encode "$(realpath ${file})"
 
 done
 IFS=$SAVEIFS
 
-prompt "Do you want to remove all log files?" -o "Yes" -d "No" -o "Consolidate into error.log"
-if [ "$response" = "y" ]; then
-
-	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec rm {} \;
-
-elif [ "$response" = "c" ]; then
-
-	if [ -f "$workdir/error.log" ]; then
-
-		prompt "An error log already exists." -o "Delete it" -d "Append to it" -o "Rename it"
-		if [ "$response" = "d" ]; then
-
-			rm "$workdir/error.log"
-
-		elif [ "$response" = "r" ]; then
-
-			mv "$workdir/error.log" "$workdir/error.log.old"
-		
-		fi
-	
-	fi
-
-	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec cat {} + >>$workdir/error.log
-	find "$workdir" \( -name "*.error" -or -name "*.error.old" \) -exec rm {} \;
-
+if [ "$errors" -gt 0 ]; then
+	cecho "The ritual has ended! There were $errors errors."
+else
+	cecho "The ritual has ended! I think it was successful."
 fi
-
-cecho "The ritual has ended! Whether it was successful or not is debatable."
